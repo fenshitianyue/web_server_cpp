@@ -25,6 +25,16 @@ void test_http(){
   // acceptor构造参数：io_service类型对象和endpoint类型对象
   ///////////////////////////////////////////////////////
   boost::asio::ip::tcp::acceptor acceptor(io, endpoint);
+
+  //IO操作
+  //定义一个流缓冲区
+  boost::asio::streambuf read_buf;
+  ///////////////////////////////////////////////////////
+  // 很多网络协议都是基于行实现的，也就是说这些协议元素由\r\n
+  // 符号进行界定，eg:HTTP。在Asio中，读取分隔符的协议的函数是：
+  // async_read_untile()
+  ///////////////////////////////////////////////////////
+  boost::asio::async_read_until(socket, read_buf, "\r\n\r\n", read_handler); 
 }
 
 void test_https(){
