@@ -57,7 +57,55 @@ namespace WebServer{
     virtual void accept(){};
     //处理请求和应答
     void process_request_and_respond(std::shared_ptr<socket_type> socket) const {
-      
+      //为 async_read_untile() 创建新的读缓存 
+      //shared_ptr 用于传递临时对象给匿名函数
+      auto read_buffer = std::make_shared<boost::asio::streambuf>(); //auto : std::shared_ptr<boost::asio::streambuf>
+      boost::asio::async_read_until(*socket, *read_buffer, "\r\n\r\n",
+          [this, socket, read_buffer](const boost::system::error_code& ec, size_t bytes_transferred){
+            if(!ec){
+              size_t total = read_buffer->size();
+               
+              std::istream stream(read_buffer.get());
+              auto request = std::make_shared<Request>();
+              *request = parse_request(stream);
+
+              size_t num_additional_bytes = total - bytes_transferred;
+              if(request->header.count("Content-Length") > 0){
+                //boost::asio::async_read(*socket, *read_buffer,)
+              }
+            }
+
+          });
+    }
+    //解析请求
+    Request parse_request(std::istream& stream) const {
+      Request request;
+      //通过正则表达式解析出请求方法、请求路径和HTTP版本号
+      std::regex r("^([^ ]*) ([^ ]*) HTTP/([^ ]*)$");
+      std::smatch sub_match;
+      //从第一行中解析出请求方法、请求路径和HTTP版本号
+      std::string line;
+      getline(stream, line);
+      //line.pop_back(); 
+      if(std::regex_match(line, sub_match, r)){
+        request.method = sub_match[1];
+        request.path = sub_match[2];
+        request.http_version = sub_match[3];
+
+        bool matched;
+        r = "^([^:]*): ?(.*)$";
+        //解析头部的其他信息
+        do{
+          std::string().swap(line); //释放line底层空间
+          getline(stream, line); 
+          //line.pop_back();
+          matched = std::regex_match(line, sub_match, r);
+          if(matched){
+            request.header[sub_match[1]] = sub_match[2];
+          }
+        }while(matched == true);
+      }
+      return request;
     }
   public:
     //定义服务器访问资源处理方式
