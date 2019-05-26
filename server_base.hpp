@@ -39,7 +39,6 @@ namespace WebServer{
       //建立连接
       accept();
       //如果线程池中线程个数大于1，那么缺省运行(num_threads-1)线程
-      //???
       for(size_t i = 1; i < num_threads; ++i){
         threads.emplace_back([this](){
               m_io_service.run(); 
@@ -71,8 +70,17 @@ namespace WebServer{
 
               size_t num_additional_bytes = total - bytes_transferred;
               if(request->header.count("Content-Length") > 0){
-                //boost::asio::async_read(*socket, *read_buffer,)
-              }
+                boost::asio::async_read(*socket, *read_buffer, 
+                                        boost::asio::transfer_exactly(stoull(request->header["Content-Length"]) - num_additional_bytes), 
+                                        [this, socket, read_buffer, request](const boost::system::error_code& ec, size_t){
+                                          if(!ec){
+                                            request->content = std::shared_ptr<std::istream>(new std::istream(read_buffer.get()));
+                                            respond(socket, request);
+                                          }
+                                        });
+                }else{
+                  respond(socket, request);
+                }
             }
 
           });
@@ -106,6 +114,29 @@ namespace WebServer{
         }while(matched == true);
       }
       return request;
+    }
+    void respond(std::shared_ptr<socket_type> socket, std::shared_ptr<Request> request) const {
+      //对请求路径和方法进行匹配查找，并生成响应
+      for(auto res_it : all_resources){
+        std::regex e(res_it->first);
+        std::smatch sm_res;
+        if(std::regex_match(request->path, sm_res, e)){
+          if(res_it->second.count(request->method) > 0){
+            request->path_match = move(sm_res);
+            auto write_buffer = std::make_shared<boost::asio::streambuf>();
+            std::ostream response(write_buffer.get());
+            res_it->second[request->method](response, *request);
+
+            //由于是异步写，所以要在lambda中捕获write_buffer，确保其不会在异步写完成前销毁
+            boost::asio::async_write(*socket, *write_buffer, 
+                [this, socket, request, write_buffer](const boost::system::error_code ec, size_t){
+                  if(!ec && stof(request->http_version) > 1.05)
+                    process_request_and_respond(socket);
+                });
+            return; //???
+          }
+        }
+      }
     }
   public:
     //定义服务器访问资源处理方式
